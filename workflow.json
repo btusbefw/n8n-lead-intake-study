@@ -1,0 +1,102 @@
+{
+  "id": "cdrxrxLeadIntakeDemo",
+  "name": "CDRXRX — lead intake, synthetic CRM demo",
+  "active": false,
+  "nodes": [
+    {
+      "id": "start",
+      "name": "Manual demo",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "fixtures",
+      "name": "Synthetic form submissions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "jsCode": "return [{\"requestId\": \"demo-1\", \"name\": \" Ana Demo \", \"email\": \"ANA@example.test\"}, {\"requestId\": \"demo-1\", \"name\": \" Ana Demo \", \"email\": \"ANA@example.test\"}, {\"requestId\": \"demo-2\", \"name\": \"Luis Example\", \"email\": \"luis@example.test\"}, {\"requestId\": \"invalid-3\", \"name\": \"Invalid Example\", \"email\": \"not-an-email\"}].map(json => ({json}));"
+      }
+    },
+    {
+      "id": "validate",
+      "name": "Validate and deduplicate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "jsCode": "function normalize(items) {\n  const accepted = [], rejected = [], seen = new Set();\n  for (let index = 0; index < items.length; index++) {\n    const data = items[index];\n    const fail = reason => rejected.push({ index, reason });\n    if (!data || typeof data !== 'object' || Array.isArray(data)) { fail('invalid_object'); continue; }\n    if (typeof data.requestId !== 'string' || !/^[A-Za-z0-9_-]{1,80}$/.test(data.requestId)) { fail('invalid_request_id'); continue; }\n    if (typeof data.email !== 'string' || data.email.length > 254 || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(data.email.trim())) { fail('invalid_email'); continue; }\n    if (typeof data.name !== 'string' || !data.name.trim() || data.name.length > 160) { fail('invalid_name'); continue; }\n    if (seen.has(data.requestId)) { fail('duplicate_request_id'); continue; }\n    seen.add(data.requestId);\n    accepted.push({ externalId: data.requestId, name: data.name.trim(), email: data.email.trim().toLowerCase(), source: 'demo-form' });\n  }\n  return { accepted, rejected };\n}\n\nconst result = normalize($input.all().map(item => item.json));\nconsole.log(JSON.stringify({accepted:result.accepted.length,rejected:result.rejected}));\nreturn result.accepted.map(json => ({json}));"
+      }
+    },
+    {
+      "id": "crm",
+      "name": "Upsert into MOCK CRM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        0
+      ],
+      "parameters": {
+        "method": "PUT",
+        "url": "=http://autobusiness-n8n-crm:8080/leads/{{ $json.externalId }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 5000
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Manual demo": {
+      "main": [
+        [
+          {
+            "node": "Synthetic form submissions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Synthetic form submissions": {
+      "main": [
+        [
+          {
+            "node": "Validate and deduplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate and deduplicate": {
+      "main": [
+        [
+          {
+            "node": "Upsert into MOCK CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
